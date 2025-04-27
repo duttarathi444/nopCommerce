@@ -16,6 +16,6 @@ jobs:
         dotnet-version: '9.0.100'
         cache: true
     - name: restore
-      run: dotnet restore src/Presentation/Nop.Web/Nop.Web.csproj
+      run: dotnet restore src/Presentation/Nop.Web/Nop.Web.csproj --use-lock-file
     - name: build
       run: dotnet build  src/Presentation/Nop.Web/Nop.Web.csproj --configuration Debug
