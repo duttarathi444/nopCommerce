@@ -1,0 +1,16 @@
+name: nopCommerce
+
+on:
+  push:
+    branches: [ "develop" ]
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: restore
+      run: dotnet restore src/Presentation/Nop.Web/Nop.Web.csproj
+    - name: build
+      run: dotnet build  src/Presentation/Nop.Web/Nop.Web.csproj --configuration Debug
