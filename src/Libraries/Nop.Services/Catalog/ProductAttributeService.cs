@@ -311,13 +311,13 @@ public partial class ProductAttributeService : IProductAttributeService
     #region Product attribute value pictures
 
     /// <summary>
-    /// Deletes a product attribute value picture
+    /// Deletes a list of product attribute value picture
     /// </summary>
-    /// <param name="value">Product attribute value picture</param>
+    /// <param name="value">Product attribute value pictures</param>
     /// <returns>A task that represents the asynchronous operation</returns>
-    public virtual async Task DeleteProductAttributeValuePictureAsync(ProductAttributeValuePicture valuePicture)
+    public virtual async Task DeleteProductAttributeValuePicturesAsync(IList<ProductAttributeValuePicture> valuePictures)
     {
-        await _productAttributeValuePictureRepository.DeleteAsync(valuePicture);
+        await _productAttributeValuePictureRepository.DeleteAsync(valuePictures);
     }
 
     /// <summary>
@@ -520,6 +520,28 @@ public partial class ProductAttributeService : IProductAttributeService
         var combination = await query.FirstOrDefaultAsync();
 
         return combination;
+    }
+
+    /// <summary>
+    /// Gets product attribute combinations by SKU array
+    /// </summary>
+    /// <param name="skuArray">SKU array</param>
+    /// <returns>
+    /// A task that represents the asynchronous operation
+    /// The task result contains the product attribute combinations
+    /// </returns>
+    public virtual async Task<IList<ProductAttributeCombination>> GetProductAttributeCombinationsBySkuAsync(string[] skuArray)
+    {
+        ArgumentNullException.ThrowIfNull(skuArray);
+
+        var query =
+            from pac in _productAttributeCombinationRepository.Table
+            join p in _productRepository.Table on pac.ProductId equals p.Id
+            orderby pac.Id
+            where !p.Deleted && skuArray.Contains(pac.Sku)
+            select pac;
+
+        return await query.ToListAsync();
     }
 
     /// <summary>

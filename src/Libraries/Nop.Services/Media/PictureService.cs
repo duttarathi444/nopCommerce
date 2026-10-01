@@ -7,10 +7,12 @@ using Nop.Core.Infrastructure;
 using Nop.Data;
 using Nop.Services.Catalog;
 using Nop.Services.Configuration;
+using Nop.Services.Helpers;
 using Nop.Services.Logging;
 using Nop.Services.Seo;
 using SkiaSharp;
 using Svg.Skia;
+using Picture = Nop.Core.Domain.Media.Picture;
 
 namespace Nop.Services.Media;
 
@@ -31,6 +33,7 @@ public partial class PictureService : IPictureService
     protected readonly IRepository<PictureBinary> _pictureBinaryRepository;
     protected readonly IRepository<ProductPicture> _productPictureRepository;
     protected readonly ISettingService _settingService;
+    protected readonly IThumbService _thumbService;
     protected readonly IUrlRecordService _urlRecordService;
     protected readonly IWebHelper _webHelper;
     protected readonly MediaSettings _mediaSettings;
@@ -49,6 +52,7 @@ public partial class PictureService : IPictureService
         IRepository<PictureBinary> pictureBinaryRepository,
         IRepository<ProductPicture> productPictureRepository,
         ISettingService settingService,
+        IThumbService thumbService,
         IUrlRecordService urlRecordService,
         IWebHelper webHelper,
         MediaSettings mediaSettings)
@@ -63,6 +67,7 @@ public partial class PictureService : IPictureService
         _pictureBinaryRepository = pictureBinaryRepository;
         _productPictureRepository = productPictureRepository;
         _settingService = settingService;
+        _thumbService = thumbService;
         _urlRecordService = urlRecordService;
         _webHelper = webHelper;
         _mediaSettings = mediaSettings;
@@ -120,50 +125,6 @@ public partial class PictureService : IPictureService
     }
 
     /// <summary>
-    /// Delete picture thumbs
-    /// </summary>
-    /// <param name="picture">Picture</param>
-    /// <returns>A task that represents the asynchronous operation</returns>
-    protected virtual async Task DeletePictureThumbsAsync(Picture picture)
-    {
-        var filter = $"{picture.Id:0000000}*.*";
-        var currentFiles = _fileProvider.GetFiles(_fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath), filter, false);
-        foreach (var currentFileName in currentFiles)
-        {
-            var thumbFilePath = await GetThumbLocalPathAsync(currentFileName);
-            _fileProvider.DeleteFile(thumbFilePath);
-        }
-    }
-
-    /// <summary>
-    /// Get picture (thumb) local path
-    /// </summary>
-    /// <param name="thumbFileName">Filename</param>
-    /// <returns>
-    /// A task that represents the asynchronous operation
-    /// The task result contains the local picture thumb path
-    /// </returns>
-    protected virtual Task<string> GetThumbLocalPathAsync(string thumbFileName)
-    {
-        var thumbsDirectoryPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath);
-
-        if (_mediaSettings.MultipleThumbDirectories)
-        {
-            //get the first two letters of the file name
-            var fileNameWithoutExtension = _fileProvider.GetFileNameWithoutExtension(thumbFileName);
-            if (fileNameWithoutExtension != null && fileNameWithoutExtension.Length > NopMediaDefaults.MultipleThumbDirectoriesLength)
-            {
-                var subDirectoryName = fileNameWithoutExtension[0..NopMediaDefaults.MultipleThumbDirectoriesLength];
-                thumbsDirectoryPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath, subDirectoryName);
-                _fileProvider.CreateDirectory(thumbsDirectoryPath);
-            }
-        }
-
-        var thumbFilePath = _fileProvider.Combine(thumbsDirectoryPath, thumbFileName);
-        return Task.FromResult(thumbFilePath);
-    }
-
-    /// <summary>
     /// Get images path URL 
     /// </summary>
     /// <param name="storeLocation">Store location URL; null to use determine the current store location automatically</param>
@@ -182,34 +143,6 @@ public partial class PictureService : IPictureService
     }
 
     /// <summary>
-    /// Get picture (thumb) URL 
-    /// </summary>
-    /// <param name="thumbFileName">Filename</param>
-    /// <param name="storeLocation">Store location URL; null to use determine the current store location automatically</param>
-    /// <returns>
-    /// A task that represents the asynchronous operation
-    /// The task result contains the local picture thumb path
-    /// </returns>
-    protected virtual async Task<string> GetThumbUrlAsync(string thumbFileName, string storeLocation = null)
-    {
-        var url = await GetImagesPathUrlAsync(storeLocation) + "thumbs/";
-
-        if (_mediaSettings.MultipleThumbDirectories)
-        {
-            //get the first two letters of the file name
-            var fileNameWithoutExtension = _fileProvider.GetFileNameWithoutExtension(thumbFileName);
-            if (fileNameWithoutExtension != null && fileNameWithoutExtension.Length > NopMediaDefaults.MultipleThumbDirectoriesLength)
-            {
-                var subDirectoryName = fileNameWithoutExtension[0..NopMediaDefaults.MultipleThumbDirectoriesLength];
-                url = url + subDirectoryName + "/";
-            }
-        }
-
-        url += thumbFileName;
-        return url;
-    }
-
-    /// <summary>
     /// Get picture local path. Used when images stored on file system (not in the database)
     /// </summary>
     /// <param name="fileName">Filename</param>
@@ -219,7 +152,7 @@ public partial class PictureService : IPictureService
     /// </returns>
     protected virtual Task<string> GetPictureLocalPathAsync(string fileName)
     {
-        return Task.FromResult(_fileProvider.GetAbsolutePath("images", fileName));
+        return Task.FromResult(_fileProvider.Combine(_fileProvider.GetLocalImagesPath(_mediaSettings), fileName));
     }
 
     /// <summary>
@@ -240,38 +173,6 @@ public partial class PictureService : IPictureService
             : await LoadPictureFromFileAsync(picture.Id, picture.MimeType);
 
         return result;
-    }
-
-    /// <summary>
-    /// Get a value indicating whether some file (thumb) already exists
-    /// </summary>
-    /// <param name="thumbFilePath">Thumb file path</param>
-    /// <param name="thumbFileName">Thumb file name</param>
-    /// <returns>
-    /// A task that represents the asynchronous operation
-    /// The task result contains the result
-    /// </returns>
-    protected virtual Task<bool> GeneratedThumbExistsAsync(string thumbFilePath, string thumbFileName)
-    {
-        return Task.FromResult(_fileProvider.FileExists(thumbFilePath));
-    }
-
-    /// <summary>
-    /// Save a value indicating whether some file (thumb) already exists
-    /// </summary>
-    /// <param name="thumbFilePath">Thumb file path</param>
-    /// <param name="thumbFileName">Thumb file name</param>
-    /// <param name="mimeType">MIME type</param>
-    /// <param name="binary">Picture binary</param>
-    /// <returns>A task that represents the asynchronous operation</returns>
-    protected virtual async Task SaveThumbAsync(string thumbFilePath, string thumbFileName, string mimeType, byte[] binary)
-    {
-        //ensure \thumb directory exists
-        var thumbsDirectoryPath = _fileProvider.GetAbsolutePath(NopMediaDefaults.ImageThumbsPath);
-        _fileProvider.CreateDirectory(thumbsDirectoryPath);
-
-        //save
-        await _fileProvider.WriteAllBytesAsync(thumbFilePath, binary);
     }
 
     /// <summary>
@@ -432,7 +333,7 @@ public partial class PictureService : IPictureService
                 using (var surface = new SKCanvas(bitmap))
                 {
                     surface.RotateDegrees(180, bitmap.Width / 2f, bitmap.Height / 2f);
-                    surface.DrawBitmap(bitmap.Copy(), 0, 0);
+                    surface.DrawBitmap(bitmap.Copy(), 0, 0, SKSamplingOptions.Default);
                 }
                 return bitmap;
             case SKEncodedOrigin.RightTop:
@@ -441,7 +342,7 @@ public partial class PictureService : IPictureService
                 {
                     surface.Translate(rotated.Width, 0);
                     surface.RotateDegrees(90);
-                    surface.DrawBitmap(bitmap, 0, 0);
+                    surface.DrawBitmap(bitmap, 0, 0, SKSamplingOptions.Default);
                 }
                 return rotated;
             case SKEncodedOrigin.LeftBottom:
@@ -450,7 +351,7 @@ public partial class PictureService : IPictureService
                 {
                     surface.Translate(0, rotated.Height);
                     surface.RotateDegrees(270);
-                    surface.DrawBitmap(bitmap, 0, 0);
+                    surface.DrawBitmap(bitmap, 0, 0, SKSamplingOptions.Default);
                 }
                 return rotated;
             default:
@@ -539,22 +440,21 @@ public partial class PictureService : IPictureService
 
         var defaultImageFileName = defaultPictureType switch
         {
-            PictureType.Avatar => await _settingService.GetSettingByKeyAsync("Media.Customer.DefaultAvatarImageName", NopMediaDefaults.DefaultAvatarFileName),
-            _ => await _settingService.GetSettingByKeyAsync("Media.DefaultImageName", NopMediaDefaults.DefaultImageFileName),
+            PictureType.Avatar => NopMediaDefaults.DefaultAvatarFileName,
+            PictureType.Object3d => NopMediaDefaults.Default3dPreviewFileName,
+            _ => NopMediaDefaults.DefaultImageFileName,
         };
         var filePath = await GetPictureLocalPathAsync(defaultImageFileName);
         if (!_fileProvider.FileExists(filePath))
-        {
             return string.Empty;
-        }
 
         if (targetSize == 0)
             return await GetImagesPathUrlAsync(storeLocation) + defaultImageFileName;
 
         var fileExtension = _fileProvider.GetFileExtension(filePath);
         var thumbFileName = $"{_fileProvider.GetFileNameWithoutExtension(filePath)}_{targetSize}{fileExtension}";
-        var thumbFilePath = await GetThumbLocalPathAsync(thumbFileName);
-        if (!await GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
+        var thumbFilePath = await _thumbService.GetThumbLocalPathByFileNameAsync(thumbFileName);
+        if (!await _thumbService.GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
         {
             //the named mutex helps to avoid creating the same files in different threads,
             //and does not decrease performance significantly, because the code is blocked only for the specific file.
@@ -565,11 +465,11 @@ public partial class PictureService : IPictureService
             try
             {
                 using var image = SKBitmap.Decode(filePath);
-                var codec = SKCodec.Create(filePath);
+                using var codec = SKCodec.Create(filePath);
                 var format = codec.EncodedFormat;
                 var pictureBinary = ImageResize(image, format, targetSize);
                 var mimeType = GetMimeTypeFromFileName(thumbFileName);
-                SaveThumbAsync(thumbFilePath, thumbFileName, mimeType, pictureBinary).Wait();
+                _thumbService.SaveThumbAsync(thumbFilePath, thumbFileName, mimeType, pictureBinary).Wait();
             }
             finally
             {
@@ -577,7 +477,7 @@ public partial class PictureService : IPictureService
             }
         }
 
-        return await GetThumbUrlAsync(thumbFileName, storeLocation);
+        return await _thumbService.GetThumbUrlAsync(thumbFileName, storeLocation);
     }
 
     /// <summary>
@@ -626,7 +526,7 @@ public partial class PictureService : IPictureService
         byte[] pictureBinary = null;
         if (picture.IsNew)
         {
-            await DeletePictureThumbsAsync(picture);
+            await _thumbService.DeletePictureThumbsAsync(picture);
             pictureBinary = await LoadPictureBinaryAsync(picture);
 
             if ((pictureBinary?.Length ?? 0) == 0)
@@ -654,9 +554,9 @@ public partial class PictureService : IPictureService
         //there is no need to resize the svg image as the browser will take care of it
         if (targetSize == 0 || picture.MimeType == MimeTypes.ImageSvg)
         {
-            var thumbFilePath = await GetThumbLocalPathAsync(thumbFileName);
-            if (await GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
-                return (await GetThumbUrlAsync(thumbFileName, storeLocation), picture);
+            var thumbFilePath = await _thumbService.GetThumbLocalPathByFileNameAsync(thumbFileName);
+            if (await _thumbService.GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
+                return (await _thumbService.GetThumbUrlAsync(thumbFileName, storeLocation), picture);
 
             pictureBinary ??= await LoadPictureBinaryAsync(picture);
 
@@ -668,7 +568,7 @@ public partial class PictureService : IPictureService
             mutex.WaitOne();
             try
             {
-                SaveThumbAsync(thumbFilePath, thumbFileName, picture.MimeType, pictureBinary).Wait();
+                _thumbService.SaveThumbAsync(thumbFilePath, thumbFileName, picture.MimeType, pictureBinary).Wait();
             }
             finally
             {
@@ -681,14 +581,14 @@ public partial class PictureService : IPictureService
                 ? $"{picture.Id:0000000}_{seoFileName}_{targetSize}.{lastPart}"
                 : $"{picture.Id:0000000}_{targetSize}.{lastPart}";
 
-            var thumbFilePath = await GetThumbLocalPathAsync(thumbFileName);
-            if (await GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
-                return (await GetThumbUrlAsync(thumbFileName, storeLocation), picture);
+            var thumbFilePath = await _thumbService.GetThumbLocalPathByFileNameAsync(thumbFileName);
+            if (await _thumbService.GeneratedThumbExistsAsync(thumbFilePath, thumbFileName))
+                return (await _thumbService.GetThumbUrlAsync(thumbFileName, storeLocation), picture);
 
             pictureBinary ??= await LoadPictureBinaryAsync(picture);
 
             if (pictureBinary == null)
-                return (await GetThumbUrlAsync(thumbFileName, storeLocation), picture);
+                return (await _thumbService.GetThumbUrlAsync(thumbFileName, storeLocation), picture);
 
             //the named mutex helps to avoid creating the same files in different threads,
             //and does not decrease performance significantly, because the code is blocked only for the specific file.
@@ -696,7 +596,7 @@ public partial class PictureService : IPictureService
             //we can't use semaphore here, because it produces PlatformNotSupportedException exception on UNIX based systems
             using var mutex = new Mutex(false, thumbFileName);
             mutex.WaitOne();
-           
+
             try
             {
                 var format = GetImageFormatByMimeType(picture.MimeType);
@@ -715,7 +615,7 @@ public partial class PictureService : IPictureService
                     pictureBinary = ImageResize(image, format, targetSize);
                 }
 
-                SaveThumbAsync(thumbFilePath, thumbFileName, picture.MimeType, pictureBinary).Wait();
+                _thumbService.SaveThumbAsync(thumbFilePath, thumbFileName, picture.MimeType, pictureBinary).Wait();
             }
             catch
             {
@@ -727,26 +627,7 @@ public partial class PictureService : IPictureService
             }
         }
 
-        return (await GetThumbUrlAsync(thumbFileName, storeLocation), picture);
-    }
-
-    /// <summary>
-    /// Get a picture local path
-    /// </summary>
-    /// <param name="picture">Picture instance</param>
-    /// <param name="targetSize">The target picture size (longest side)</param>
-    /// <param name="showDefaultPicture">A value indicating whether the default picture is shown</param>
-    /// <returns>
-    /// A task that represents the asynchronous operation
-    /// The task result contains the 
-    /// </returns>
-    public virtual async Task<string> GetThumbLocalPathAsync(Picture picture, int targetSize = 0, bool showDefaultPicture = true)
-    {
-        var (url, _) = await GetPictureUrlAsync(picture, targetSize, showDefaultPicture);
-        if (string.IsNullOrEmpty(url))
-            return string.Empty;
-
-        return await GetThumbLocalPathAsync(_fileProvider.GetFileName(url));
+        return (await _thumbService.GetThumbUrlAsync(thumbFileName, storeLocation), picture);
     }
 
     #endregion
@@ -816,7 +697,7 @@ public partial class PictureService : IPictureService
         ArgumentNullException.ThrowIfNull(picture);
 
         //delete thumbs
-        await DeletePictureThumbsAsync(picture);
+        await _thumbService.DeletePictureThumbsAsync(picture);
 
         //delete from file system
         if (!await IsStoreInDbAsync())
@@ -970,7 +851,7 @@ public partial class PictureService : IPictureService
         if (string.IsNullOrEmpty(contentType))
             contentType = GetPictureContentTypeByFileExtension(fileExtension);
 
-        if (contentType == MimeTypes.ImageSvg && !_mediaSettings.AllowSVGUploads)
+        if (contentType == MimeTypes.ImageSvg && !_mediaSettings.AllowSvgUploads)
             return null;
 
         var picture = await InsertPictureAsync(await _downloadService.GetDownloadBitsAsync(formFile),
@@ -1020,7 +901,7 @@ public partial class PictureService : IPictureService
 
         //delete old thumbs if a picture has been changed
         if (seoFilename != picture.SeoFilename)
-            await DeletePictureThumbsAsync(picture);
+            await _thumbService.DeletePictureThumbsAsync(picture);
 
         picture.MimeType = mimeType;
         picture.SeoFilename = seoFilename;
@@ -1053,7 +934,7 @@ public partial class PictureService : IPictureService
         var seoFilename = CommonHelper.EnsureMaximumLength(picture.SeoFilename, 100);
 
         //delete old thumbs if exists
-        await DeletePictureThumbsAsync(picture);
+        await _thumbService.DeletePictureThumbsAsync(picture);
 
         picture.SeoFilename = seoFilename;
 
@@ -1118,36 +999,53 @@ public partial class PictureService : IPictureService
     /// <param name="fileName">Name of file</param>
     /// <returns>
     /// A task that represents the asynchronous operation
-    /// The task result contains the picture binary or throws an exception
+    /// The task result contains the picture binary or throws a <see cref="NopException"/>
     /// </returns>
-    public virtual async Task<byte[]> ValidatePictureAsync(byte[] pictureBinary, string mimeType, string fileName)
+    public virtual Task<byte[]> ValidatePictureAsync(byte[] pictureBinary, string mimeType, string fileName)
     {
         try
         {
             SKBitmap image;
+            var isSvg = mimeType?.Equals("image/svg+xml", StringComparison.OrdinalIgnoreCase) == true;
 
-            if (_mediaSettings.AutoOrientImage)
+            if (isSvg)
             {
                 using var input = new MemoryStream(pictureBinary);
-                using var codec = SKCodec.Create(input);
-                image = AutoOrient(SKBitmap.Decode(codec), codec.EncodedOrigin);
+                using var svg = new SKSvg();
+                svg.Load(input);
+
+                var width = (int)svg.Picture.CullRect.Width;
+                var height = (int)svg.Picture.CullRect.Height;
+
+                image = new SKBitmap(width, height);
+                using var canvas = new SKCanvas(image);
+                canvas.Clear(SKColors.Transparent);
+                canvas.DrawPicture(svg.Picture);
             }
             else
-                image = SKBitmap.Decode(pictureBinary);
+            {
+                if (_mediaSettings.AutoOrientImage)
+                {
+                    using var input = new MemoryStream(pictureBinary);
+                    using var codec = SKCodec.Create(input);
+                    image = AutoOrient(SKBitmap.Decode(codec), codec.EncodedOrigin);
+                }
+                else
+                    image = SKBitmap.Decode(pictureBinary);
+            }
 
             //resize the image in accordance with the maximum size
-            if (Math.Max(image.Height, image.Width) <= _mediaSettings.MaximumImageSize) 
-                return pictureBinary;
+            if (Math.Max(image.Height, image.Width) <= _mediaSettings.MaximumImageSize)
+                return Task.FromResult(pictureBinary);
 
             var format = GetImageFormatByMimeType(mimeType);
             pictureBinary = ImageResize(image, format, _mediaSettings.MaximumImageSize);
 
-            return pictureBinary;
+            return Task.FromResult(pictureBinary);
         }
         catch (Exception exc)
         {
-            await _logger.ErrorAsync($"Cannot decode picture binary (file name: {fileName})", exc);
-            return pictureBinary;
+            throw new NopException($"Cannot decode picture binary (file name: {fileName})", exc);
         }
     }
 
@@ -1269,6 +1167,58 @@ public partial class PictureService : IPictureService
         {
             // ignored
         }
+    }
+
+
+    /// <summary>
+    /// Change path to store pictures
+    /// </summary>
+    /// <param name="path">New path</param>
+    /// <returns>A task that represents the asynchronous operation</returns>
+    public virtual async Task ChangePicturesPathAsync(string path)
+    {
+        var newPath = _fileProvider.GetLocalImagesPath(_mediaSettings, path);
+        _fileProvider.CreateDirectory(newPath);
+
+        var oldPath = _fileProvider.GetLocalImagesPath(_mediaSettings);
+        if (newPath.Equals(oldPath))
+            return;
+
+        var isSubDir = newPath.StartsWith(oldPath);
+
+        var directoriesToDelete = new List<string>();
+        newPath = newPath.TrimEnd('/').TrimEnd('\\');
+
+        foreach (var originalFile in _fileProvider.EnumerateFiles(oldPath, "*.*", false))
+        {
+            if (isSubDir && originalFile.StartsWith(newPath))
+                continue;
+
+            var fileName = originalFile.Replace(oldPath, string.Empty);
+            var newFilePath = _fileProvider.Combine(newPath, fileName);
+            var newDirPath = _fileProvider.GetParentDirectory(newFilePath).TrimEnd('/').TrimEnd('\\');
+
+            var oldDirPath = _fileProvider.GetParentDirectory(originalFile).TrimEnd('/').TrimEnd('\\');
+
+            if (!oldDirPath.Equals(oldPath.TrimEnd('/').TrimEnd('\\')) && !directoriesToDelete.Contains(oldDirPath))
+                directoriesToDelete.Add(oldDirPath);
+
+            if (!newDirPath.Equals(newPath))
+                _fileProvider.CreateDirectory(newDirPath);
+
+            _fileProvider.FileMove(originalFile, newFilePath);
+        }
+
+        if (!newPath.StartsWith(oldPath))
+            _fileProvider.DeleteDirectory(oldPath);
+        else
+        {
+            foreach (var dir in directoriesToDelete.Where(_fileProvider.DirectoryExists))
+                _fileProvider.DeleteDirectory(dir);
+        }
+
+        _mediaSettings.PicturePath = path;
+        await _settingService.SaveSettingAsync(_mediaSettings, settings => settings.PicturePath);
     }
 
     #endregion

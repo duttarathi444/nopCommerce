@@ -175,11 +175,11 @@ public partial interface IProductAttributeService
     #region Product attribute value pictures
 
     /// <summary>
-    /// Deletes a product attribute value picture
+    /// Deletes a list of product attribute value picture
     /// </summary>
-    /// <param name="value">Product attribute value picture</param>
+    /// <param name="value">Product attribute value pictures</param>
     /// <returns>A task that represents the asynchronous operation</returns>
-    Task DeleteProductAttributeValuePictureAsync(ProductAttributeValuePicture valuePicture);
+    Task DeleteProductAttributeValuePicturesAsync(IList<ProductAttributeValuePicture> valuePictures);
 
     /// <summary>
     /// Inserts a product attribute value picture
@@ -299,6 +299,16 @@ public partial interface IProductAttributeService
     /// The task result contains the product attribute combination
     /// </returns>
     Task<ProductAttributeCombination> GetProductAttributeCombinationBySkuAsync(string sku);
+
+    /// <summary>
+    /// Gets product attribute combinations by SKU array
+    /// </summary>
+    /// <param name="skuArray">SKU array</param>
+    /// <returns>
+    /// A task that represents the asynchronous operation
+    /// The task result contains the product attribute combinations
+    /// </returns>
+    Task<IList<ProductAttributeCombination>> GetProductAttributeCombinationsBySkuAsync(string[] skuArray);
 
     /// <summary>
     /// Inserts a product attribute combination
