@@ -20,6 +20,11 @@ pipeline {
           zip zipFile: './published.zip',
               archive : true,
               dir: './published'
+              overwrite : true
+        }
+        cleanup {
+          sh 'rm -rf published'
+          sh 'rm -f published.zip'
         }
       }
     }
