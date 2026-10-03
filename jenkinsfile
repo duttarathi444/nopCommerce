@@ -2,6 +2,7 @@ pipeline {
   agent { label 'dotnet8' }
   options { timeout(time: 1, unit: 'HOURS') }
   triggers { pollSCM('* * * * *') }
+  tools { dotnetsdk 'DOTNET10' }
   stages {
     stage("SCM") {
       steps {
